@@ -1,0 +1,145 @@
+﻿@page "/hooks"
+@using System.Net
+@using System.Text.RegularExpressions
+@using AscendedHookHelper.Data
+@using AscendedHookHelper.Data.Headers
+@inject Blazored.LocalStorage.ILocalStorageService LocalStorage
+
+<PageTitle>Counter</PageTitle>
+
+<h1>Hooks</h1>
+
+<p>ASA API Hooks Helper Tool</p>
+
+@if (_headerDataList?.Count < ReferenceData.ArkHeaderNamesList.Count)
+{
+    <p>
+        <em>Loading...</em>
+    </p>
+}
+else
+{
+    <p>Loaded in @_lastLoadCompletionDurationSeconds seconds!</p>
+    <br/>
+    @foreach (HeaderData headerData in _headerDataList)
+    {
+        <p> ___ @headerData.HeaderName ___</p>
+        @foreach (HeaderStructData structData in headerData.StructsList)
+        {
+            <p>-=[@structData.StructName]=-</p>
+            <br/>
+        }
+        <p>==============================</p>
+    }
+}
+
+
+@code {
+    private int LoadingHeadersTimeoutSeconds { get; set; } = 20;
+    
+    const string StructFullContentsRegexPattern = @"struct .*?{\n.*?\n*?\n};";
+    const string StructNameRegexPattern = @"(?<=struct ).*?(?= ?{|\n)";
+    const string StructFunctionsFullContentRegexPattern = @"(?<=// Functions\n\n).*(}$|(?=\n\n))";
+    const string FunctionLinesRegexPattern = @".*?}(?=\n|$)";
+    const string FunctionLineNameRegexPattern = @"(?<= )[a-zA-Z]*";
+
+    private float _lastLoadCompletionDurationSeconds = 0f;
+
+    private DateTime? _lastStartedLoadingHeadersTime = null;
+    private readonly List<HeaderData>? _headerDataList = new List<HeaderData>();
+
+    
+    protected override async Task OnInitializedAsync()
+    {
+        await LoadAllHeadersAsync();
+    }
+
+    private async Task LoadAllHeadersAsync()
+    {
+        // Sanity check that we realistically should try to load headers right now.
+        // If LastStartedLoadingHeadersTime does have a value, then we are still trying to load the headers right now.
+        // A timeout is checked for with variable `loadingHeadersTimeoutSeconds` in an attempt to prevent edge cases and failures from allowing a retry.
+        if (_lastStartedLoadingHeadersTime.HasValue && (DateTime.UtcNow - _lastStartedLoadingHeadersTime.Value).TotalSeconds < LoadingHeadersTimeoutSeconds)
+            return;
+
+        // Record the current DateTime into a variable so we know how long it takes to complete the header loading
+        _lastStartedLoadingHeadersTime = DateTime.UtcNow;
+        _headerDataList?.Clear();
+
+        List<string> headersNamesListBuffer;
+        lock (ReferenceData.ArkHeaderNamesList)
+        {
+            headersNamesListBuffer = new List<string>(ReferenceData.ArkHeaderNamesList);
+        }
+
+        List<Task> loaderTasksList = new List<Task>();
+        foreach (string headerName in headersNamesListBuffer)
+        {
+            loaderTasksList.Add(Task.Run(() => LoadHeaderAsync(headerName)));
+        }
+        await Task.WhenAll(loaderTasksList);
+        
+
+        _lastLoadCompletionDurationSeconds = (float)(DateTime.UtcNow - _lastStartedLoadingHeadersTime.Value).TotalSeconds;
+    }
+
+    private async Task LoadHeaderAsync(string headerName)
+    {
+        if (_headerDataList == null)
+            return;
+        
+        using HttpClient webClient = new HttpClient();
+        string requestUrl = ReferenceData.RawGitHubAsaApiRepoUrl + ReferenceData.GitHubAsaApiHeadersFilePath + $"/{headerName}.h";
+        string rawData = await webClient.GetStringAsync(requestUrl);
+
+        if (rawData.Length < 5)
+            return;
+        
+        MatchCollection matchList = Regex.Matches(rawData, StructFullContentsRegexPattern, RegexOptions.Multiline | RegexOptions.Singleline);
+        List<string> structMatchesList = matchList.Select(match => match.Value).ToList();
+
+        HeaderData headerData = new HeaderData()
+        {
+            HeaderName = headerName,
+            StructsList = new List<HeaderStructData>(),
+        };
+        _headerDataList.Add(headerData);
+        
+        for(int i = 0; i < structMatchesList.Count; i++)
+        {
+            string? structName = Regex.Match(structMatchesList[i], StructNameRegexPattern, RegexOptions.Multiline | RegexOptions.Singleline).Value;
+            
+            matchList = Regex.Matches(structMatchesList[i], StructFunctionsFullContentRegexPattern, RegexOptions.Multiline | RegexOptions.Singleline);
+            string? structFunctionsSectionSnippet = matchList.FirstOrDefault()?.Value;
+            
+            if(string.IsNullOrEmpty(structFunctionsSectionSnippet) || string.IsNullOrEmpty(structName))
+                continue;
+
+            HeaderStructData structData = new HeaderStructData()
+            {
+                StructName = structName,
+                FunctionsList = new List<HeaderFunctionData>()
+            };
+            headerData.StructsList.Add(structData);
+
+            matchList = Regex.Matches(structFunctionsSectionSnippet, FunctionLinesRegexPattern);
+            List<string> functionLinesList = matchList.Select(match => match.Value.Trim('\t')).ToList();
+
+            foreach (string functionLine in functionLinesList)
+            {
+                if (functionLine.Length < 5)
+                    continue;
+
+                HeaderFunctionData functionData = new HeaderFunctionData()
+                {
+                    FunctionName = Regex.Match(functionLine, FunctionLineNameRegexPattern).Value,
+                    RawFunctionSignature = functionLine,
+                };
+                structData.FunctionsList.Add(functionData);
+            }
+
+        }
+    }
+    
+
+}
