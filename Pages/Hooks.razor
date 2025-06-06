@@ -38,7 +38,7 @@ else
     private int LoadingHeadersTimeoutSeconds { get; set; } = 20;
     
     const string StructFullContentsRegexPattern = @"struct .*?{\n.*?\n*?\n};";
-    const string StructNameRegexPattern = @"(?<=struct ).*?(?= ?{|\n)";
+    const string StructNameRegexPattern = @"(?<=struct ).*?(?= ?{|\n| ?;)";
     const string StructFunctionsFullContentRegexPattern = @"(?<=// Functions\n\n).*(}$|(?=\n\n))";
     const string FunctionLinesRegexPattern = @".*?}(?=\n|$)";
     const string FunctionLineNameRegexPattern = @"(?<= )[a-zA-Z]*";

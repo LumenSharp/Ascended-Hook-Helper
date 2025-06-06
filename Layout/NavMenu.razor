@@ -1,25 +1,12 @@
-﻿<div class="top-row ps-3 navbar navbar-dark">
-    <div class="container-fluid">
-        <a class="navbar-brand" href="">Ascended-Hook-Helper</a>
-        <button title="Navigation menu" class="navbar-toggler" @onclick="ToggleNavMenu">
-            <span class="navbar-toggler-icon"></span>
-        </button>
-    </div>
-</div>
-
-<div class="@NavMenuCssClass nav-scrollable" @onclick="ToggleNavMenu">
-    <nav class="nav flex-column">
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="" Match="NavLinkMatch.All">
-                <span class="bi bi-house-door-fill-nav-menu" aria-hidden="true"></span> Home
-            </NavLink>
-        </div>
-        <div class="nav-item px-3">
-            <NavLink class="nav-link" href="hooks">
-                <span class="bi bi-plus-square-fill-nav-menu" aria-hidden="true"></span> Hooks
-            </NavLink>
-        </div>
+﻿<div id="header" class="wrapper">
+    <!-- Nav -->
+    <nav id="nav">
+        <ul>
+            <li><NavLink class="nav-link" href="" Match="NavLinkMatch.All">Home</NavLink></li>
+            <li><NavLink class="nav-link" href="hooks">Hooks</NavLink></li>
+        </ul>
     </nav>
+
 </div>
 
 @code {
