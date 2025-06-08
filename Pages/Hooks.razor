@@ -16,6 +16,10 @@
     <p>
         <em>Loading...</em>
     </p>
+    @if (_lastStartedLoadingHeadersTime.HasValue && (DateTime.UtcNow - _lastStartedLoadingHeadersTime.Value).TotalSeconds >= LoadingHeadersTimeoutSeconds)
+    {
+        <p>Headers cache updating timed out after @LoadingHeadersTimeoutSeconds seconds. Please refresh the page.</p>
+    }
 }
 else
 {
@@ -35,7 +39,7 @@ else
 
 
 @code {
-    private int LoadingHeadersTimeoutSeconds { get; set; } = 20;
+    private int LoadingHeadersTimeoutSeconds { get; set; } = 45;
     
     const string StructFullContentsRegexPattern = @"struct .*?{\n.*?\n*?\n};";
     const string StructNameRegexPattern = @"(?<=struct ).*?(?= ?{|\n| ?;)";
@@ -46,12 +50,47 @@ else
     private float _lastLoadCompletionDurationSeconds = 0f;
 
     private DateTime? _lastStartedLoadingHeadersTime = null;
+    private DateTime? _lastHeadersCachedTime = null;
     private readonly List<HeaderData>? _headerDataList = new List<HeaderData>();
 
-    
+
     protected override async Task OnInitializedAsync()
     {
+        await LoadBasicLocalDataAsync();
+        
         await LoadAllHeadersAsync();
+        
+        await SaveBasicLocalDataAsync();
+    }
+
+
+    private async Task SaveBasicLocalDataAsync()
+    {
+        await LocalStorage.SetItemAsync(ReferenceData.SaveKey_LastHeadersCachedDateTime, _lastHeadersCachedTime);
+    }
+
+    private async Task LoadBasicLocalDataAsync()
+    {
+        _lastHeadersCachedTime = await LocalStorage.GetItemAsync<DateTime?>(ReferenceData.SaveKey_LastHeadersCachedDateTime);
+    }
+
+    private async Task ClearLocalHeaderCacheAsync(string headerName)
+    {
+        await LocalStorage.RemoveItemAsync(ReferenceData.SaveKey_HeaderDataPrefix + headerName);
+    }
+
+    private async Task ClearAllLocalCacheAsync()
+    {
+        _lastHeadersCachedTime = null;
+        
+        IEnumerable<string> existingLocalKeys = await LocalStorage.KeysAsync();
+        foreach (string existingKey in existingLocalKeys)
+        {
+            if (existingKey.StartsWith(ReferenceData.SaveKey_HeaderDataPrefix))
+                await LocalStorage.RemoveItemAsync(existingKey);
+        }
+
+        await SaveBasicLocalDataAsync();
     }
 
     private async Task LoadAllHeadersAsync()
@@ -64,6 +103,7 @@ else
 
         // Record the current DateTime into a variable so we know how long it takes to complete the header loading
         _lastStartedLoadingHeadersTime = DateTime.UtcNow;
+        
         _headerDataList?.Clear();
 
         List<string> headersNamesListBuffer;
@@ -72,14 +112,53 @@ else
             headersNamesListBuffer = new List<string>(ReferenceData.ArkHeaderNamesList);
         }
 
+        bool updatedLocalCache = false;
         List<Task> loaderTasksList = new List<Task>();
         foreach (string headerName in headersNamesListBuffer)
         {
-            loaderTasksList.Add(Task.Run(() => LoadHeaderAsync(headerName)));
+            if (_lastHeadersCachedTime.HasValue)
+            {
+                if ((DateTime.UtcNow - _lastHeadersCachedTime.Value).TotalDays < 3f)
+                {
+                     // Less than maximum cache reset time has passed since last cache save.
+                    // Attempt to load from storage locally
+                    HeaderData? localCachedHeader = await LocalStorage.GetItemAsync<HeaderData>(ReferenceData.SaveKey_HeaderDataPrefix + headerName);
+                    if (localCachedHeader == null)
+                    {
+                        // await ClearLocalHeaderCacheAsync(headerName);
+                        await ClearAllLocalCacheAsync();
+                    }
+                    else
+                    {
+                        _headerDataList.Add(localCachedHeader);
+                        continue;
+                    }
+                }
+                else
+                {
+                    // Headers exist but are too old. Clear them from local.
+                    await ClearAllLocalCacheAsync();
+                }
+            }
+            
+            
+            loaderTasksList.Add( LoadHeaderAsync(headerName));
+            updatedLocalCache = true;
         }
         await Task.WhenAll(loaderTasksList);
-        
 
+        // Save the created HeaderData to local headers cache
+        foreach (HeaderData headerData in _headerDataList)
+        {
+            await LocalStorage.SetItemAsync(ReferenceData.SaveKey_HeaderDataPrefix + headerData.HeaderName, headerData);
+        }
+
+        if (updatedLocalCache)
+        {
+            _lastHeadersCachedTime = DateTime.UtcNow;
+            await SaveBasicLocalDataAsync();
+        }
+        
         _lastLoadCompletionDurationSeconds = (float)(DateTime.UtcNow - _lastStartedLoadingHeadersTime.Value).TotalSeconds;
     }
 
@@ -88,6 +167,7 @@ else
         if (_headerDataList == null)
             return;
         
+        // Download fresh header data and store in local header cache
         using HttpClient webClient = new HttpClient();
         string requestUrl = ReferenceData.RawGitHubAsaApiRepoUrl + ReferenceData.GitHubAsaApiHeadersFilePath + $"/{headerName}.h";
         string rawData = await webClient.GetStringAsync(requestUrl);
