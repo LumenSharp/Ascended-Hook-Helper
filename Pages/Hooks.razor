@@ -1,5 +1,4 @@
 ﻿@page "/hooks"
-@using System.Net
 @using System.Text.RegularExpressions
 @using AscendedHookHelper.Data
 @using AscendedHookHelper.Data.Headers
@@ -25,16 +24,28 @@ else
 {
     <p>Loaded in @_lastLoadCompletionDurationSeconds seconds!</p>
     <br/>
-    @foreach (HeaderData headerData in _headerDataList)
-    {
-        <p> ___ @headerData.HeaderName ___</p>
-        @foreach (HeaderStructData structData in headerData.StructsList)
+    
+    <input type="text" @bind="_searchInputValue" @bind:event="oninput" />
+    
+    <ul>
+        @if (FilteredSearchHeaderResults != null)
         {
-            <p>-=[@structData.StructName]=-</p>
-            <br/>
+            foreach (HeaderData headerData in FilteredSearchHeaderResults)
+            {
+                <li>@headerData.HeaderName</li>
+            }
         }
-        <p>==============================</p>
-    }
+    </ul>
+    @* @foreach (HeaderData headerData in _headerDataList) *@
+    @* { *@
+    @*     <p> ___ @headerData.HeaderName ___</p> *@
+    @*     $1$ @foreach (HeaderStructData structData in headerData.StructsList) #1# *@
+    @*     $1$ { #1# *@
+    @*     $1$     <p>-=[@structData.StructName]=-</p> #1# *@
+    @*     $1$     <br/> #1# *@
+    @*     $1$ } #1# *@
+    @*     $1$ <p>==============================</p> #1# *@
+    @* } *@
 }
 
 
@@ -49,10 +60,14 @@ else
 
     private float _lastLoadCompletionDurationSeconds = 0f;
 
+    private string? _searchInputValue = null;
+
     private DateTime? _lastStartedLoadingHeadersTime = null;
     private DateTime? _lastHeadersCachedTime = null;
-    private readonly List<HeaderData>? _headerDataList = new List<HeaderData>();
+    private readonly List<HeaderData>? _headerDataListRaw = new List<HeaderData>();
+    private readonly Dictionary<string, HeaderData>? _headerDatasRegistry = new Dictionary<string, HeaderData>();
 
+    // HeaderData[]? FilteredSearchHeaderResults => _searchInputValue != null ? _headerDataList?.Where(i => i.HeaderName.ToLower().Contains(_searchInputValue?.ToLower())).ToArray() : null;
 
     protected override async Task OnInitializedAsync()
     {
@@ -61,6 +76,81 @@ else
         await LoadAllHeadersAsync();
         
         await SaveBasicLocalDataAsync();
+    }
+
+    private async Task<HeaderIdentifier[]?> FilterResultsBySearch(string? input)
+    {
+        if (input == null || _headerDataListRaw == null || _headerDataListRaw.Count < 1)
+            return null;
+
+        List<HeaderIdentifier> filteredIdentifiersReturnList = new List<HeaderIdentifier>();
+        
+        List<string> filteredMatchingHeaderDatas = new List<string>();
+        List<string> filteredMatchingStructDatas = new List<string>();
+        List<string> filteredMatchingFunctionDatas = new List<string>();
+
+        bool flagFoundStructMatch = false;
+        bool flagFoundFunctionMatch = false;
+
+        foreach (HeaderData headerData in _headerDataListRaw)
+        {
+            if (headerData.StructsList == null || headerData.StructsList.Count < 1)
+                continue;
+            
+            foreach (HeaderStructData structData in headerData.StructsList)
+            {
+                if (structData.FunctionsList == null || structData.FunctionsList.Count < 1)
+                    continue;
+                
+                
+                foreach (HeaderFunctionData functionData in structData.FunctionsList)
+                {
+                    
+                    if (functionData.FunctionName.Contains(input))
+                    {
+                        filteredMatchingFunctionDatas.Add(functionData.FunctionName);
+                        flagFoundFunctionMatch = true;
+                    }
+                }
+
+                if (!flagFoundFunctionMatch)
+                {
+                    if (structData.StructName.ToLower().Contains(input))
+                    {
+                        filteredMatchingStructDatas.Add(structData.StructName);
+                        flagFoundStructMatch = true;
+                    }
+                }
+                flagFoundFunctionMatch = false;
+
+            }
+            
+            
+
+            if (!flagFoundStructMatch)
+            {
+                if (headerData.HeaderName.ToLower().Contains(input))
+                {
+                    filteredMatchingHeaderDatas.Add(headerData.HeaderName);
+                }
+            }
+            flagFoundStructMatch = false;
+            
+        }
+
+        foreach (string headerName in filteredMatchingHeaderDatas)
+        {
+            filteredIdentifiersReturnList.Add();
+        }
+        
+        
+        
+        HeaderData[]? headerDatasFiltered = _headerDataListRaw?.Where(i => i.HeaderName.ToLower().Contains(_searchInputValue?.ToLower())).ToArray();
+        List<HeaderStructData> headerStructDatasFiltered = new List<HeaderStructData>();
+        foreach (HeaderData headerData in _headerDataList)
+        {
+            headerStructDatasFiltered.Add(headerData.StructsList.Where(i => i.StructName.ToLower().Contains(input)));
+        }
     }
 
 

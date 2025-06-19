@@ -2,6 +2,6 @@
 
 public class HeaderData
 {
-    public string? HeaderName { get; set; }
+    public string HeaderName { get; set; } = "_NULL_";
     public List<HeaderStructData>? StructsList { get; set; } = null;
 }
